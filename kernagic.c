@@ -43,6 +43,8 @@ int canvas_height ()
   return PREVIEW_HEIGHT;
 }
 
+char * kernagic_center_glyphs = NULL;
+
 KernerSettings kerner_settings = {
   0,
   KERNER_DEFAULT_MIN,
@@ -63,7 +65,6 @@ float  scale_factor = 0.18;
 static gunichar *glyph_string = NULL;
 
 extern KernagicMethod *kernagic_cadence,
-   //                   *kernagic_rythm,
                       *kernagic_gap,
                       *kernagic_gray,
                       *kernagic_original,
@@ -462,6 +463,10 @@ void help (void)
 "   -m <method>   specify method, specify an invalid one for list of valid ones.\n"
 "       -g gap\n"
 "       -s snap\n"
+"       -bs big scale\n"
+"\n"
+"   -center-glyphs utf8stringofglyphs   overrides stems with single ink centered stem for specified glyphs.\n"
+"   -x_shift fontdim_val\n"
 "\n"
 "   -S <string>      sample string for PNG and UI\n"
 "   -o <output.ufo>  instead of running UI create a copy of the input font, this make kernagic run non-interactive with the given parameters.\n"
@@ -472,6 +477,8 @@ void help (void)
 
 const char *ufo_path = NULL;
 int ipsumat (int argc, char **argv);
+
+float kernagic_x_shift = 0.0;
 
 void parse_args (int argc, char **argv)
 {
@@ -503,6 +510,11 @@ void parse_args (int argc, char **argv)
           EXPECT_ARG;
           kerner_settings.gap = atof (argv[++no]);
         }
+      else if (!strcmp (argv[no], "-bs"))
+        {
+          EXPECT_ARG;
+          kerner_settings.big_glyph_scaling = atof (argv[++no]);
+        }
       else if (!strcmp (argv[no], "-t"))
         {
           EXPECT_ARG;
@@ -512,6 +524,13 @@ void parse_args (int argc, char **argv)
         {
           EXPECT_ARG;
           kerner_settings.snap = atof (argv[++no]);
+          if (kerner_settings.snap < 0.5)
+            kerner_settings.snap = 1;
+        }
+      else if (!strcmp (argv[no], "--x_shift"))
+        {
+          EXPECT_ARG;
+          kernagic_x_shift = atof (argv[++no]);
         }
       else if (!strcmp (argv[no], "-m"))
         {
@@ -545,6 +564,11 @@ void parse_args (int argc, char **argv)
       {
         EXPECT_ARG;
         kernagic_sample_text = argv[++no];
+      }
+      else if (!strcmp (argv[no], "--center-glyphs"))
+      {
+        EXPECT_ARG;
+        kernagic_center_glyphs = argv[++no];
       }
       else if (!strcmp (argv[no], "-o"))
       {
@@ -613,6 +637,7 @@ int main (int argc, char **argv)
 {
   if (!strcmp (basename(argv[0]), "ipsumat"))
     return ipsumat (argc, argv);
+  g_type_init ();
 
   if (!kernagic_preview)
     kernagic_preview = g_malloc0 (PREVIEW_WIDTH * PREVIEW_HEIGHT);
@@ -622,7 +647,6 @@ int main (int argc, char **argv)
 
   if (interactive)
     return ui_gtk (argc, argv);
-  g_type_init ();
   remove_monitors ();
 
   if (!ufo_path)
