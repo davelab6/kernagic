@@ -1,3 +1,20 @@
+                                                                   /*
+Kernagic a libre spacing tool for Unified Font Objects.
+Copyright (C) 2013 Øyvind Kolås
+
+Kernagicis free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+Kernagic is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with Kernagic.  If not, see <http://www.gnu.org/licenses/>.  */
+
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 #include <stdint.h>
@@ -130,9 +147,16 @@ static void trigger_divisor (void)
   frozen--;
 }
 
+void add_monitors (const char *font_path);
+
 static void trigger_cadence_path (void)
 {
-  kernagic_set_cadence (gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (cadence_path)));
+  const char *path = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (cadence_path));
+  if (path)
+  {
+    kernagic_set_cadence (path);
+    add_monitors (path);
+  }
   trigger ();
 }
 
@@ -209,6 +233,15 @@ static gboolean delayed_reload_trigger (gpointer foo)
   {
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (spin_divisor),   KERNER_DEFAULT_DIVISOR+1);
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (spin_divisor),   KERNER_DEFAULT_DIVISOR);
+  }
+
+  {
+    const char *path = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (cadence_path));
+    if (path)
+    {
+      kernagic_set_cadence (path);
+      add_monitors (path);
+    }
   }
 
   return FALSE;
@@ -893,7 +926,7 @@ g_signal_connect (G_OBJECT (window), "key_press_event", G_CALLBACK (kernagic_key
     gtk_combo_box_text_insert_text (GTK_COMBO_BOX_TEXT (spin_method),
                                     1, "Snap gap (F2)");
     gtk_combo_box_text_insert_text (GTK_COMBO_BOX_TEXT (spin_method),
-                                    2, "Classic proportions (F3)");
+                                    2, "Table based (F3)");
     gtk_combo_box_text_insert_text (GTK_COMBO_BOX_TEXT (spin_method),
                                     3, "Left and right bearings 0 (F4)");
     gtk_widget_set_tooltip_text (spin_method, "F1, F2, F3…");
@@ -904,7 +937,7 @@ g_signal_connect (G_OBJECT (window), "key_press_event", G_CALLBACK (kernagic_key
   gtk_box_pack_start (GTK_BOX (vbox1), vbox_options_cadence, FALSE, FALSE, 2);
 
   {
-    GtkWidget *label = gtk_label_new ("cadence table file");
+    GtkWidget *label = gtk_label_new ("Spacing table file");
     cadence_path = gtk_file_chooser_button_new ("cadence file", GTK_FILE_CHOOSER_ACTION_OPEN);
     if (ufo_path)
     {
@@ -955,7 +988,7 @@ g_signal_connect (G_OBJECT (window), "key_press_event", G_CALLBACK (kernagic_key
   }
 
   {
-    GtkObject *adj = gtk_adjustment_new (0.1, 0.0, 1.0, 0.01, 1.0, 0);
+    GtkObject *adj = gtk_adjustment_new (0.1, 0.0, 1.0, 0.001, 1.0, 0);
     spin_gap = gimp_spin_scale_new (GTK_ADJUSTMENT (adj), "Gap", 2);
     gtk_container_add (GTK_CONTAINER (vbox_options_rythm), spin_gap);
   }

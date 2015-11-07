@@ -1,19 +1,19 @@
-                                                                            /*
+                                                                   /*
 Kernagic a libre spacing tool for Unified Font Objects.
 Copyright (C) 2013 Øyvind Kolås
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
+Kernagicis free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-This program is distributed in the hope that it will be useful,
+Kernagic is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU Affero General Public License for more details.
+GNU General Public License for more details.
 
-You should have received a copy of the GNU Affero General Public License
-along with this program.  If not, see <http://www.gnu.org/licenses/>.       */
+You should have received a copy of the GNU General Public License
+along with Kernagic.  If not, see <http://www.gnu.org/licenses/>.  */
 
 #include <dirent.h>
 #include <sys/types.h>
@@ -43,7 +43,17 @@ int canvas_height ()
   return PREVIEW_HEIGHT;
 }
 
-char * kernagic_center_glyphs = NULL;
+int kernagic_n_overrides = 0;
+int kernagic_override_unicode[256];
+float kernagic_override_left[256];
+float kernagic_override_right[256];
+
+void add_override (int unicode, float left, float right)
+{
+  kernagic_override_unicode[kernagic_n_overrides] = unicode;
+  kernagic_override_left[kernagic_n_overrides] = left;
+  kernagic_override_right[kernagic_n_overrides++] = right;
+}
 
 KernerSettings kerner_settings = {
   0,
@@ -152,7 +162,9 @@ recompute_right_bearings ()
 }
 
 void remove_monitors (void);
-void add_monitors (const char *font_path);
+void add_monitors (const char *path);
+
+static FILE *kernagic_spacing_file = NULL;
 
 void kernagic_save_kerning_info (void)
 {
@@ -213,11 +225,22 @@ void kernagic_save_kerning_info (void)
     {
       Glyph *glyph = l->data;
       rewrite_ufo_glyph (glyph);
+
+      if (kernagic_spacing_file)
+      if (glyph->unicode)
+        fprintf (kernagic_spacing_file, "%i %f %d\n", 
+                 glyph->unicode,
+                 glyph->offset_x + glyph->left_bearing + kernagic_x_shift,
+                 (int)(kernagic_get_advance (glyph)));
     }
+  if (kernagic_spacing_file)
+    fclose (kernagic_spacing_file);
+  kernagic_spacing_file = NULL;
 
   sprintf (path, "%s/lib.plist", loaded_ufo_path);
   kernagic_libplist_rewrite (path);
 
+  remove_monitors ();
   add_monitors (loaded_ufo_path);
 }
 
@@ -236,13 +259,12 @@ void remove_monitors (void)
 
 void trigger_reload (void);
 
-void add_monitors (const char *font_path)
+void add_monitors (const char *path)
 {
-  remove_monitors ();
   {
     GFileMonitor *monitor;
     monitor = g_file_monitor (
-        g_file_new_for_commandline_arg (font_path),
+        g_file_new_for_commandline_arg (path),
         G_FILE_MONITOR_NONE,
         NULL, NULL);
     if (monitor)
@@ -251,9 +273,11 @@ void add_monitors (const char *font_path)
                           G_CALLBACK (trigger_reload), NULL);
         monitors = g_list_append (monitors, monitor);
       }
+
+    /* we try to make monitors for the glyphs dir as well */
     {
     GString *str = g_string_new ("");
-    g_string_append_printf (str, "%s/glyphs", font_path);
+    g_string_append_printf (str, "%s/glyphs", path);
     monitor = g_file_monitor (
         g_file_new_for_commandline_arg (str->str),
         G_FILE_MONITOR_NONE,
@@ -283,6 +307,7 @@ void kernagic_load_ufo (const char *font_path, gboolean strip_left_bearing)
   if (loaded_ufo_path [strlen(loaded_ufo_path)] == '/')
     loaded_ufo_path [strlen(loaded_ufo_path)] = '\0';
 
+  remove_monitors ();
   add_monitors (loaded_ufo_path);
 
   GList *l;
@@ -379,6 +404,7 @@ void kernagic_kern_clear_all (void)
     }
 }
 
+
 Glyph *kernagic_find_glyph (const char *name)
 {
   GList *l;
@@ -465,8 +491,11 @@ void help (void)
 "       -s snap\n"
 "       -bs big scale\n"
 "\n"
-"   -center-glyphs utf8stringofglyphs   overrides stems with single ink centered stem for specified glyphs.\n"
-"   -x_shift fontdim_val\n"
+"   --override glyph left right   overrides left and right stems,\n"
+"                         the stems are set with horizontal ink bounds\n"
+"                         as the unit, e.g. 0.5 is the middle of inkbounds\n"
+"   --center-glyphs utf8stringofglyphs   overrides stems with single ink centered stem for specified glyphs.\n"
+"   --x_shift fontdim_val\n"
 "\n"
 "   -S <string>      sample string for PNG and UI\n"
 "   -o <output.ufo>  instead of running UI create a copy of the input font, this make kernagic run non-interactive with the given parameters.\n"
@@ -532,6 +561,19 @@ void parse_args (int argc, char **argv)
           EXPECT_ARG;
           kernagic_x_shift = atof (argv[++no]);
         }
+      else if (!strcmp (argv[no], "--override"))
+        {
+          EXPECT_ARG; /* XXX: x3 */
+          {
+          gunichar *ucs = g_utf8_to_ucs4_fast (argv[no+1], -1, NULL);
+            if (ucs)
+            {
+              add_override (ucs[0], atof(argv[no+2]), atof(argv[no+3]));
+              g_free (ucs);
+            }
+          }
+          no+=3;
+        }
       else if (!strcmp (argv[no], "-m"))
         {
           int i;
@@ -568,7 +610,24 @@ void parse_args (int argc, char **argv)
       else if (!strcmp (argv[no], "--center-glyphs"))
       {
         EXPECT_ARG;
-        kernagic_center_glyphs = argv[++no];
+        {
+          gunichar *ucs = g_utf8_to_ucs4_fast (argv[no+1], -1, NULL);
+          int i;
+          if (ucs)
+          {
+            for (i = 0; ucs[i]; i++)
+              {
+                add_override (ucs[i], 0.5, 0.5);
+              }
+            g_free (ucs);
+          }
+        }
+        ++no;
+      }
+      else if (!strcmp (argv[no], "-x"))
+      {
+        EXPECT_ARG;
+        kernagic_spacing_file = fopen (argv[++no], "w");
       }
       else if (!strcmp (argv[no], "-o"))
       {
@@ -714,8 +773,10 @@ void kernagic_compute (GtkProgressBar *progress)
   /* space space to be width of i, if both glyphs exist */
   {
     Glyph *space = kernagic_find_glyph_unicode (' ');
+    Glyph *nbspace = kernagic_find_glyph_unicode (0x00A0);
     Glyph *i = kernagic_find_glyph_unicode ('i');
 
+    /* XXX: if i is not found.. just do 0.23% of x height? */
     if (i && space)
       {
         float width = i->left_bearing + i->ink_width + i->right_bearing;
@@ -723,6 +784,13 @@ void kernagic_compute (GtkProgressBar *progress)
         space->right_bearing = 0;
         space->left_bearing = width;
         space->ink_width = 0;
+    
+        if (nbspace)
+          {
+            nbspace->right_bearing = 0;
+            nbspace->left_bearing = width;
+            nbspace->ink_width = 0;
+          }
       }
   }
 }
